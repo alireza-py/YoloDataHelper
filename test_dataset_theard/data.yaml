@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 5
+names: ['left', 'right', 'stop', 'straight', 'u-trun']
+
+roboflow:
+  workspace: workshop1-u6tqs
+  project: sign-uj9wg
+  version: 1
+  license: Public Domain
+  url: https://universe.roboflow.com/workshop1-u6tqs/sign-uj9wg/dataset/1
