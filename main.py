@@ -11,7 +11,9 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 from time import sleep
 from pathlib import Path
+import shutil
 import os
+import re
 
 console = Console()
 
@@ -81,6 +83,49 @@ def augment_dataset(processor, in_path='', out_path=''):
     os.system("cls")
     processor.process_folder(dataset_path, output_path, augmen_params, multiplier)
     console.print("[bold green]Dataset augmentation completed![/bold green]")
+    doyou = Prompt.ask("Do you want to use crop (Y/N)? ", default="N").upper()
+    
+def resize_and_crop(processor, in_paths, out_path=''):
+    size = (640, 640)
+    in_path = in_paths[0]
+    if len(in_paths) >= 2:
+        in_path = out_path
+    dataset_path = Prompt.ask("Enter the dataset path", default=in_path)
+    output_path = Prompt.ask("Enter the output path", default=out_path)
+    write_typly(
+'''>[0]Compression: Resize with compressing images
+>[1]Advanced_compression: Resize with advanced compressing images
+>[2]Crop: Resize with cropping images
+>[3]Advanced_crop: Resize with advanced cropping images\n'''
+)
+    mode = int(Prompt.ask("Choose a number for resize mode of images", default=f"0").strip())
+    match mode:
+        case 0:
+            mode = "fixed_resize"
+        case 1:
+            mode = "advance_resize"
+        case 2:
+            mode = "fixed_crop"
+        case 3:
+            mode = "advance_crop"
+        case _:
+            mode = "fixed_resize"
+    _crop = None
+    if mode == "fixed_crop":
+        _crop = Prompt.ask("Target crop size (Xmin, Ymin, Xmax, Ymax) or offset number", default=f"10")
+        _crop = re.findall(r"\d+", _crop)
+        _crop = list(map(lambda x:int(x), _crop))
+        if len(_crop) == 1:
+            _crop = _crop[0]
+    else:
+        sizeprompt = Prompt.ask("Enter the output size of images", default=f"{size[0]}, {size[1]}")
+        sizeprompt = re.findall(r"\d+", sizeprompt)
+        if len(sizeprompt) == 1:
+            size = (int(sizeprompt[0]), int(sizeprompt[0]))
+        elif len(sizeprompt) >= 2:
+            size = (int(sizeprompt[0]), int(sizeprompt[1]))
+        write_typly(f"Change size configed to {size}\n")
+    processor.process_resize_and_crop(dataset_path, output_path, size, mode=mode, fixed_crop=_crop)
 
 def combine_datasets(combiner, paths, out_path=''):
     """Combine multiple YOLO datasets."""
@@ -105,11 +150,17 @@ def combine_datasets(combiner, paths, out_path=''):
 def visualize(visual, dataset_path, out_path=''):
     path = dataset_path if out_path == '' else out_path
     path = Prompt.ask("Enter the dataset path for augmentation", default=path)
-    with Progress() as progress:
-        task = progress.add_task("[cyan]Augmenting dataset...", total=100)
-
-        visual.visualize_annotations(path)
-        progress.update(task, advance=100)
+    PATH = Path() / path / 'visualized'
+    if os.path.exists(PATH): 
+        last_check_point = True if Prompt.ask("Do you want to continue last check point(Y/N)", default="Y").upper().strip() == 'Y' else False
+        if not last_check_point:
+            shutil.rmtree(PATH)
+    check_mode = True if Prompt.ask("Do you want to check the datasets class (Y/N)", default="Y").upper().strip() == 'Y' else False
+    folders = Prompt.ask("Enter the paths to datasets to combine (comma-separated)", default="train").split(",")
+    folders = [folder.strip() for folder in folders]
+    if folders == ['']:
+        folders = None
+    visual.visualize_annotations(path, check=check_mode, folders=folders)
 
 def display_menu(processor, datasets_path, output_path):
     """Main menu for dataset management."""
@@ -122,8 +173,9 @@ def display_menu(processor, datasets_path, output_path):
                 "[3] Delete a class (or multiple classes)\n"
                 "[4] Augment dataset\n"
                 "[5] visualize_annotations_bounding_boxs\n"
-                "[6] Combine datasets\n"
-                "[7] Exit"
+                "[6] Resize\n"
+                "[7] Combine datasets\n"
+                "[8] Exit"
             )
             choice = Prompt.ask("Choose an option (1-7)")
         else:
@@ -133,7 +185,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[3] Delete a class (or multiple classes)\n"
                 "[4] Augment dataset\n"
                 "[5] visualize_annotations_bounding_boxs\n"
-                "[6] Exit"
+                "[6] Resize\n"
+                "[7] Exit"
             )
             choice = Prompt.ask("Choose an option (1-6)")
         
@@ -145,14 +198,16 @@ def display_menu(processor, datasets_path, output_path):
             delete_classes(datasets_path, output_path)
         elif choice == "4":
             augment_dataset(processor, datasets_path[0], output_path)
-        elif choice == "5" :
+        elif choice == "5":
             visualize(processor, datasets_path[0], output_path)
-        elif choice == "6" and len(datasets_path) >= 2:
-            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "6":
+            resize_and_crop(processor, datasets_path, output_path)
         elif choice == "7" and len(datasets_path) >= 2:
+            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "8" and len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
-        elif choice == "6" and not len(datasets_path) >= 2:
+        elif choice == "7" and not len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
         else:
