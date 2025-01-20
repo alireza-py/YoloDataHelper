@@ -6,6 +6,7 @@ import shutil
 import yaml
 import uuid
 from tqdm import tqdm
+import tempfile
 
 class BaseAugmentor:
     def __init__(self, augmentation_params=None):
@@ -89,63 +90,98 @@ class DatasetProcessor(BaseAugmentor):
         with open(file_path, 'r') as f:
             return yaml.safe_load(f)
 
-    def visualize_annotations(self, dataset_folder, output_folder=None):
+    def visualize_annotations(self, dataset_folder, output_folder=None, check=False, folders=None):
         """
         Visualize annotations by drawing bounding boxes or segmentation masks on images.
+        If 'check' is True, allows the user to see and delete annotations.
+        Additionally, checks multiple folders if specified.
 
         Args:
             dataset_folder (str): Path to the dataset folder containing 'images' and 'labels'.
             output_folder (str, optional): Path to save the visualized images. If not provided, uses a default folder.
+            check (bool): If True, allows to check and delete annotations.
+            folders (list, optional): List of folders (e.g. ['train', 'validation', 'test']) to process.
         """
-        images_folder = os.path.join(dataset_folder, "train", "images")
-        labels_folder = os.path.join(dataset_folder, "train",  "labels")
+        folders = folders or ['train']  # Default to just 'train' if no folders are specified
         output_folder = output_folder or os.path.join(dataset_folder, "visualized")
         classes = self.load_classes_from_yaml(dataset_folder)
-        print(classes)
         os.makedirs(output_folder, exist_ok=True)
 
-        for image_file in os.listdir(images_folder):
-            if image_file.endswith(('.jpg', '.png', '.jpeg')):
-                image_path = os.path.join(images_folder, image_file)
-                label_path = os.path.join(labels_folder, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
+        for folder in folders:
+            images_folder = os.path.join(dataset_folder, folder, "images")
+            labels_folder = os.path.join(dataset_folder, folder, "labels")
 
-                if not os.path.exists(label_path):
-                    print(f"No label file found for {image_file}. Skipping...")
-                    continue
+            if not os.path.exists(images_folder) or not os.path.exists(labels_folder):
+                print(f"Skipping folder {folder} because one of the necessary subfolders is missing.")
+                continue
 
-                # Read image and labels
-                image = cv2.imread(image_path)
-                with open(label_path, "r") as f:
-                    labels = [list(map(float, line.strip().split())) for line in f]
+            all_images = [f for f in os.listdir(images_folder) if f.endswith(('.jpg', '.png', '.jpeg'))]
+            processed_images = set(os.listdir(output_folder))
+            
+            total_files = len(all_images)
+            processed_files = len([f for f in all_images if f in processed_images])
+            print(processed_files)
+            with tqdm(total=total_files, initial=processed_files, desc=f"Processing {folder}") as pbar:
+                for image_file in all_images:
+                    if image_file in processed_images:
+                        continue
 
-                # Determine if it's bounding box or segmentation
-                for label in labels:
-                    if len(label) == 5:
-                        # Draw bounding box
-                        class_id, cx, cy, w, h = label
-                        x_min = int((cx - w / 2) * image.shape[1])
-                        y_min = int((cy - h / 2) * image.shape[0])
-                        x_max = int((cx + w / 2) * image.shape[1])
-                        y_max = int((cy + h / 2) * image.shape[0])
-                        cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
-                        cv2.putText(image, f"{classes[int(class_id)]}", (x_min + 5, y_min + 15),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-                        cv2.putText(image, f"Class {int(class_id)}", (x_min + 5, y_max - 10),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
-                    elif len(label) > 5:
-                        # Draw segmentation mask
-                        class_id = int(label[0])
-                        points = np.array(label[1:], dtype=np.float32).reshape(-1, 2)
-                        points[:, 0] *= image.shape[1]
-                        points[:, 1] *= image.shape[0]
-                        points = points.astype(np.int32)
-                        cv2.polylines(image, [points], isClosed=True, color=(0, 0, 255), thickness=2)
-                        cv2.putText(image, f"{classes[int(class_id)]} Class {class_id}", (points[0][0], points[0][1] - 5),
-                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                    image_path = os.path.join(images_folder, image_file)
+                    label_path = os.path.join(labels_folder, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
 
-                # Save the processed image
-                output_image_path = os.path.join(output_folder, image_file)
-                cv2.imwrite(output_image_path, image)
+                    if not os.path.exists(label_path):
+                        print(f"No label file found for {image_file}. Skipping...")
+                        pbar.update(1)
+                        continue
+
+                    image = cv2.imread(image_path)
+                    with open(label_path, "r") as f:
+                        labels = [list(map(float, line.strip().split())) for line in f]
+
+                    annotations = []
+                    for label in labels:
+                        if len(label) == 5:
+                            class_id, cx, cy, w, h = label
+                            x_min = int((cx - w / 2) * image.shape[1])
+                            y_min = int((cy - h / 2) * image.shape[0])
+                            x_max = int((cx + w / 2) * image.shape[1])
+                            y_max = int((cy + h / 2) * image.shape[0])
+                            cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                            cv2.putText(image, f"{classes[int(class_id)]}", (x_min + 5, y_min + 15),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                            cv2.putText(image, f"Class {int(class_id)}", (x_min + 5, y_max - 10),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+                            annotations.append(('bbox', (x_min, y_min, x_max, y_max), class_id))
+                        elif len(label) > 5:
+                            class_id = int(label[0])
+                            points = np.array(label[1:], dtype=np.float32).reshape(-1, 2)
+                            points[:, 0] *= image.shape[1]
+                            points[:, 1] *= image.shape[0]
+                            points = points.astype(np.int32)
+                            cv2.polylines(image, [points], isClosed=True, color=(0, 0, 255), thickness=2)
+                            cv2.putText(image, f"{classes[int(class_id)]} Class {class_id}", (points[0][0], points[0][1] - 5),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                            annotations.append(('seg', points, class_id))
+
+                    if check:
+                        cv2.imshow(f"visualize_annotations", image)
+                        key = cv2.waitKey(0)
+                        if key == ord('c'):
+                            print(f"Deleting {image_file} and its label...")
+                            os.remove(image_path)
+                            os.remove(label_path)
+                            print(f"{image_file} deleted.")
+                        else:
+                            output_image_path = os.path.join(output_folder, image_file)
+                            cv2.imwrite(output_image_path, image)
+                        cv2.destroyAllWindows()
+                        if key == ord('q'):
+                            break
+                    else:
+                        output_image_path = os.path.join(output_folder, image_file)
+                        cv2.imwrite(output_image_path, image)
+
+                    pbar.update(1)
 
     def load_classes_from_yaml(self, dataset_path):
         yaml_path = os.path.join(dataset_path, "data.yaml")
@@ -376,6 +412,401 @@ class DatasetProcessor(BaseAugmentor):
                     print(f"Created missing folder: {subfolder_path}")
                 else:
                     print(f"Folder already exists: {subfolder_path}")
+  
+    def resize_image_and_labels(self, image, labels, target_size):
+        """
+        Resize an image and update its labels accordingly.
+
+        Args:
+            image (numpy array): The input image.
+            labels (list): List of YOLO labels for the image.
+            target_size (tuple): Target size (width, height).
+
+        Returns:
+            tuple: Resized image and updated labels.
+        """
+        resized_image = cv2.resize(image, target_size)
+
+        updated_labels = []
+        for label in labels:
+            parts = label.split()
+            class_id = parts[0]
+            x_center = float(parts[1])
+            y_center = float(parts[2])
+            bbox_width = float(parts[3])
+            bbox_height = float(parts[4])
+
+            updated_labels.append(f"{class_id} {x_center:.6f} {y_center:.6f} {bbox_width:.6f} {bbox_height:.6f}")
+        
+        return resized_image, updated_labels
+    
+    def process_resize_and_crop(self, input_path, output_path, target_size, mode="fixed_resize", fixed_crop=None):
+        """
+        Resize or crop images in the dataset to fit the target size, handling temporary processing if input_path == output_path.
+
+        Args:
+            input_path (str): Path to the input dataset.
+            output_path (str): Path to save the processed dataset.
+            target_size (tuple): Target size for the output (width, height).
+            mode (str): Either "resize" or "crop".
+
+        Returns:
+            None
+        """
+        temp_dir = None
+        if input_path == output_path:
+            temp_dir = tempfile.mkdtemp()  # Create a temporary directory
+            output_path = temp_dir  
+
+        subsets = ['train', 'valid', 'test']
+        in_yaml_file = os.path.join(input_path, 'data.yaml')
+        out_yaml_file = os.path.join(output_path, 'data.yaml')
+        for subset in subsets:
+            images_input_path = os.path.join(input_path, subset, 'images')
+            labels_input_path = os.path.join(input_path, subset, 'labels')
+            images_output_path = os.path.join(output_path, subset, 'images')
+            labels_output_path = os.path.join(output_path, subset, 'labels')
+
+            os.makedirs(images_output_path, exist_ok=True)
+            os.makedirs(labels_output_path, exist_ok=True)
+
+            for image_file in tqdm(os.listdir(images_input_path), desc=f"Processing {subset} ({mode})"):
+                if image_file.endswith(('.jpg', '.png', '.jpeg')):
+                    image_path = os.path.join(images_input_path, image_file)
+                    label_path = os.path.join(labels_input_path, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
+
+                    image = cv2.imread(image_path)
+
+                    labels = []
+                    if os.path.exists(label_path):
+                        with open(label_path, 'r') as f:
+                            labels = f.readlines()
+                    
+                    # Perform the selected mode
+                    if mode == "fixed_resize":
+                        processed_image, updated_labels = self.resize_image_and_labels(image, labels, target_size)
+                    elif mode == "advance_resize":
+                        processed_image, updated_labels = self.random_place_boxes_with_appropriate_resizing(image, labels, target_size)
+                    elif mode == "advance_crop":
+                        processed_image, updated_labels = self.random_place_boxes_with_complex_croping(image, labels, target_size)
+                    elif mode == "fixed_crop":
+                        if isinstance(fixed_crop, tuple) and len(fixed_crop) == 4:
+                            pass
+                        elif isinstance(fixed_crop, int):
+                            fixed_crop = (fixed_crop, fixed_crop, image.shape[1] - fixed_crop, image.shape[0] - fixed_crop)
+                        else:
+                            fixed_crop = (10, 10, image.shape[1] - 10, image.shape[0] - 10)
+                        processed_image, updated_labels = self.crop_with_fixed_box(image, labels, fixed_crop)
+                    else:
+                        raise ValueError("Invalid mode. Choose either 'resize' or 'crop' modes.")
+                    
+                    # self._test_(updated_labels, processed_image)
+                    # cv2.imshow("image", processed_image)
+                    # if cv2.waitKey(0) == ord('q'): 
+                    #     break
+            
+                    output_image_path = os.path.join(images_output_path, image_file)
+                    cv2.imwrite(output_image_path, processed_image)
+
+                    output_label_path = os.path.join(labels_output_path, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
+                    with open(output_label_path, 'w') as f:
+                        f.writelines(updated_labels)
+        if os.path.exists(in_yaml_file) and not os.path.exists(out_yaml_file):
+            shutil.copyfile(in_yaml_file, out_yaml_file)
+
+        if temp_dir:
+            for subset in subsets:
+                images_temp_path = os.path.join(temp_dir, subset, 'images')
+                labels_temp_path = os.path.join(temp_dir, subset, 'labels')
+                images_final_path = os.path.join(input_path, subset, 'images')
+                labels_final_path = os.path.join(input_path, subset, 'labels')
+
+                for file in os.listdir(images_temp_path):
+                    shutil.move(os.path.join(images_temp_path, file), os.path.join(images_final_path, file))
+
+                for file in os.listdir(labels_temp_path):
+                    shutil.move(os.path.join(labels_temp_path, file), os.path.join(labels_final_path, file))
+
+            shutil.rmtree(temp_dir)
+
+        print(f"Processed dataset saved to {input_path if temp_dir else output_path}.")         
+
+    def random_place_boxes_with_complex_croping(self, image, labels, target_size):
+        """
+        Randomly place bounding boxes in the target image size while avoiding overlap,
+        and apply a complex random background with color noise and effects.
+        
+        Args:
+            image (numpy array): Input image.
+            labels (list): YOLO labels (class_id, x_center, y_center, width, height).
+            target_size (tuple): Target size (width, height).
+            
+        Returns:
+            tuple: Resized image with objects and updated labels.
+        """
+        target_width, target_height = target_size
+        original_height, original_width = image.shape[:2]
+        
+        if target_width <= original_width and target_height <= original_height:
+            output_image = np.random.randint(0, 256, (target_height, target_width, 3), dtype=np.uint8)
+            
+            noise_type = random.choice(["salt_and_pepper", "gaussian", "none"])
+            if noise_type == "salt_and_pepper":
+                s_vs_p = 0.5  # Salt vs. pepper ratio
+                amount = 0.02  # Amount of noise
+                out = np.copy(output_image)
+                num_salt = int(amount * target_width * target_height * s_vs_p)
+                salt_coords = [np.random.randint(0, i-1, num_salt) for i in output_image.shape]
+                out[salt_coords[0], salt_coords[1], :] = 255
+                num_pepper = int(amount * target_width * target_height * (1.0 - s_vs_p))
+                pepper_coords = [np.random.randint(0, i-1, num_pepper) for i in output_image.shape]
+                out[pepper_coords[0], pepper_coords[1], :] = 0
+                output_image = out
+            elif noise_type == "gaussian":
+                row, col, ch = output_image.shape
+                mean = 0
+                sigma = 25
+                gauss = np.random.normal(mean, sigma, (row, col, ch))
+                noisy = np.array(output_image, dtype=float) + gauss
+                noisy = np.clip(noisy, 0, 255)
+                output_image = noisy.astype(np.uint8)
+
+            effect_type = random.choice(["blur", "brightness", "none"])
+            if effect_type == "blur":
+                ksize = random.choice([3, 5, 7])
+                output_image = cv2.GaussianBlur(output_image, (ksize, ksize), 0)
+            elif effect_type == "brightness":
+                brightness_factor = random.uniform(0.5, 1.5)
+                hsv = cv2.cvtColor(output_image, cv2.COLOR_BGR2HSV)
+                hsv[:, :, 2] = hsv[:, :, 2] * brightness_factor
+                output_image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+
+        else:
+            output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * 127  # Gray background
+            scale = min(target_width / original_width, target_height / original_height)
+            new_width = int(original_width * scale)
+            new_height = int(original_height * scale)
+            resized_image = cv2.resize(image, (new_width, new_height))
+            
+            x_offset = (target_width - new_width) // 2
+            y_offset = (target_height - new_height) // 2
+            output_image[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_image
+
+        updated_labels = []
+        placed_boxes = []
+
+        for label in labels:
+            parts = label.split()
+            class_id = parts[0]
+            x_center = float(parts[1]) * original_width
+            y_center = float(parts[2]) * original_height
+            bbox_width = float(parts[3]) * original_width
+            bbox_height = float(parts[4]) * original_height
+
+            x_min = int(x_center - bbox_width / 2)
+            y_min = int(y_center - bbox_height / 2)
+            x_max = int(x_center + bbox_width / 2)
+            y_max = int(y_center + bbox_height / 2)
+
+            cropped_box = image[y_min:y_max, x_min:x_max]
+
+            scale = min(target_width / bbox_width, target_height / bbox_height)
+            new_width = int(bbox_width * scale)
+            new_height = int(bbox_height * scale)
+            resized_box = cv2.resize(cropped_box, (new_width, new_height))
+
+            max_attempts = 100
+            for _ in range(max_attempts):
+                max_x_offset = target_width - new_width
+                max_y_offset = target_height - new_height
+                x_offset = random.randint(0, max(0, max_x_offset))
+                y_offset = random.randint(0, max(0, max_y_offset))
+
+                overlap = False
+                for placed_box in placed_boxes:
+                    px_min, py_min, px_max, py_max = placed_box
+                    if not (x_offset + new_width <= px_min or
+                            x_offset >= px_max or
+                            y_offset + new_height <= py_min or
+                            y_offset >= py_max):
+                        overlap = True
+                        break
+
+                if not overlap:
+                    output_image[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_box
+                    placed_boxes.append((x_offset, y_offset, x_offset + new_width, y_offset + new_height))
+
+                    new_x_center = (x_offset + new_width / 2) / target_width
+                    new_y_center = (y_offset + new_height / 2) / target_height
+                    new_bbox_width = new_width / target_width
+                    new_bbox_height = new_height / target_height
+
+                    updated_labels.append(f"{class_id} {new_x_center:.6f} {new_y_center:.6f} {new_bbox_width:.6f} {new_bbox_height:.6f}")
+                    break
+            else:
+                print(f"Warning: Could not place box {label} without overlap after {max_attempts} attempts.")
+
+        return output_image, updated_labels
+        
+    def random_place_boxes_with_appropriate_resizing(self, image, labels, target_size):
+        """
+        Place bounding boxes in the target image size while respecting aspect ratios.
+        If aspect ratio of the target image is similar to the original image, resize the image.
+        Otherwise, place the original image in the center of the target image without resizing.
+        
+        Args:
+            image (numpy array): Input image.
+            labels (list): YOLO labels (class_id, x_center, y_center, width, height).
+            target_size (tuple): Target size (width, height).
+            
+        Returns:
+            tuple: Resized image with objects and updated labels.
+        """
+        target_width, target_height = target_size
+        original_height, original_width = image.shape[:2]
+        
+        original_aspect = original_width / original_height
+        target_aspect = target_width / target_height
+        
+        output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * 127  # Gray background
+        
+        updated_labels = []
+        
+        if abs(original_aspect - target_aspect) < 0.1:  
+            scale = min(target_width / original_width, target_height / original_height)
+            new_width = int(original_width * scale)
+            new_height = int(original_height * scale)
+            resized_image = cv2.resize(image, (new_width, new_height))
+            
+            x_offset = (target_width - new_width) // 2
+            y_offset = (target_height - new_height) // 2
+            max_x_offset = target_width - new_width
+            max_y_offset = target_height - new_height
+            x_offset = random.randint(0, max(0, max_x_offset))
+            y_offset = random.randint(0, max(0, max_y_offset))
+            output_image[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_image
+            
+            for label in labels:
+                parts = label.split()
+                class_id = parts[0]
+                x_center = float(parts[1]) * original_width
+                y_center = float(parts[2]) * original_height
+                bbox_width = float(parts[3]) * original_width
+                bbox_height = float(parts[4]) * original_height
+
+                new_x_center = (x_center * scale + x_offset) / target_width
+                new_y_center = (y_center * scale + y_offset) / target_height
+                new_bbox_width = bbox_width * scale / target_width
+                new_bbox_height = bbox_height * scale / target_height
+                
+                updated_labels.append(f"{class_id} {new_x_center:.6f} {new_y_center:.6f} {new_bbox_width:.6f} {new_bbox_height:.6f}")
+        
+        else:
+            scale = min(target_width / original_width, target_height / original_height)
+            new_width = int(original_width * scale)
+            new_height = int(original_height * scale)
+            
+            resized_image = cv2.resize(image, (new_width, new_height))
+            
+            x_offset = (target_width - new_width) // 2
+            y_offset = (target_height - new_height) // 2
+            max_x_offset = target_width - new_width
+            max_y_offset = target_height - new_height
+            x_offset = random.randint(0, max(0, max_x_offset))
+            y_offset = random.randint(0, max(0, max_y_offset))
+            output_image[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_image
+            
+            for label in labels:
+                parts = label.split()
+                class_id = parts[0]
+                x_center = float(parts[1]) * original_width
+                y_center = float(parts[2]) * original_height
+                bbox_width = float(parts[3]) * original_width
+                bbox_height = float(parts[4]) * original_height
+
+                new_x_center = (x_center * scale + x_offset) / target_width
+                new_y_center = (y_center * scale + y_offset) / target_height
+                new_bbox_width = bbox_width * scale / target_width
+                new_bbox_height = bbox_height * scale / target_height
+                
+                updated_labels.append(f"{class_id} {new_x_center:.6f} {new_y_center:.6f} {new_bbox_width:.6f} {new_bbox_height:.6f}")
+
+        return output_image, updated_labels
+
+    def crop_with_fixed_box(self, image, labels, crop_box):
+        """
+        Crop an image and update bounding boxes.
+
+        Args:
+            image (numpy array): The input image.
+            labels (list): List of YOLO labels for the image.
+            crop_box (tuple): The crop box (x_min, y_min, x_max, y_max).
+
+        Returns:
+            tuple: Cropped image and updated labels.
+        """
+        x_min, y_min, x_max, y_max = crop_box
+        height, width = image.shape[:2]
+        if x_max > width:
+            x_max = width
+        if y_max > height:
+            y_max = height
+        crop_width = x_max - x_min
+        crop_height = y_max - y_min
+
+        cropped_image = image[y_min:y_max, x_min:x_max]
+
+        updated_labels = []
+        for label in labels:
+            parts = list(map(lambda x:float(x), label.split()))
+            class_id = int(parts[0])
+            x_min_bbox = (parts[1]-parts[3]/2) * image.shape[1]  # Original x_min
+            y_min_bbox = (parts[2]-parts[4]/2) * image.shape[0]  # Original y_min
+            x_max_bbox = (parts[1]+parts[3]/2) * image.shape[1]
+            y_max_bbox = (parts[2]+parts[4]/2) * image.shape[0]
+
+            if x_max_bbox < x_min or x_min_bbox > x_max or y_max_bbox < y_min or y_min_bbox > y_max:
+                continue  # Skip boxes outside the crop area
+
+            if x_min_bbox <= x_min:
+                x_min_bbox = 0
+            else:
+                x_min_bbox -= x_min
+            if y_min_bbox <= y_min:
+                y_min_bbox = 0
+            else:
+                y_min_bbox -= y_min
+            if x_max_bbox >= x_max:
+                x_max_bbox = crop_width
+            else:
+                x_max_bbox -= x_min
+            if y_max_bbox >= y_max:
+                y_max_bbox = crop_height
+            else:
+                y_max_bbox -= y_min
+
+            x_center_new = ((x_min_bbox + x_max_bbox) / 2) / crop_width
+            y_center_new = ((y_min_bbox + y_max_bbox) / 2) / crop_height
+            bbox_width_new = (x_max_bbox - x_min_bbox) / crop_width
+            bbox_height_new = (y_max_bbox - y_min_bbox) / crop_height
+
+            updated_labels.append(f"{class_id} {x_center_new:.6f} {y_center_new:.6f} {bbox_width_new:.6f} {bbox_height_new:.6f}")
+
+        return cropped_image, updated_labels
+
+    def _test_(self, labels, image):
+        for label in labels:
+            if len(label.split()) == 5:
+                # Draw bounding box
+                class_id, cx, cy, w, h = map(lambda x:float(x), label.split())
+                x_min = int((cx - w / 2) * image.shape[1])
+                y_min = int((cy - h / 2) * image.shape[0])
+                x_max = int((cx + w / 2) * image.shape[1])
+                y_max = int((cy + h / 2) * image.shape[0])
+                cv2.rectangle(image, (x_min, y_min), (x_max, y_max), (0, 255, 0), 2)
+                cv2.putText(image, f"Class {int(class_id)}", (x_min + 5, y_max - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
+
 
 class DatasetCleaner:
     def __init__(self, dataset_path):
