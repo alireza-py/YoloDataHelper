@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 1
+names: ['dog']
+
+roboflow:
+  workspace: workspace-nyrap
+  project: dogdetectiontutorial
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/workspace-nyrap/dogdetectiontutorial/dataset/1

@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 2
+names: ['cat', 'dog']
+
+roboflow:
+  workspace: ws1-09eoe
+  project: cats-dogsv2
+  version: 1
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/ws1-09eoe/cats-dogsv2/dataset/1
