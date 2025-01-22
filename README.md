@@ -24,7 +24,11 @@
 - Display bounding boxes or segmentation masks over images for easy verification.
 - Save annotated images to a specified output directory.
 
-### 5. **Dataset Validation**
+### 5. **Classes Equalization**
+- Balance the number of images per class to ensure a uniform distribution.
+- Adjust the dataset to prevent class imbalance issues.
+
+### 6. **Dataset Validation**
 - Ensure the presence of the necessary directories (`train`, `valid`, `test`) and their subfolders (`images`, `labels`).
 - Automatically create any missing directories if they don’t exist.
 
@@ -90,7 +94,15 @@ processor = DatasetProcessor(output_path)
 
 processor.visualize_annotations(dataset_folder="path/to/dataset")
 ```
-### 5. Directory Validation
+### 5. Classes Equalization
+```python
+from YoloDatasetsTools import DatasetProcessor
+
+cleaner = DatasetCleaner(dataset_folder="path/to/dataset")
+
+cleaner.classes_equalization(subset=["train", "valid", "test"])
+```
+### 6. Directory Validation
 Ensure required directories (train, valid, test) and their subfolders exist:
 ```python
 from YoloDatasetsTools import DatasetProcessor
