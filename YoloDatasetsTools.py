@@ -320,7 +320,7 @@ class DatasetProcessor(BaseAugmentor):
                 with open(os.path.join(self.output_path, folder_type, 'labels', new_label_name), 'w') as f:
                     f.writelines(new_lines)
 
-    def process_folder(self, input_folder=None, output_folder=None, augmentation_params=None, multiplier=None):
+    def process_folder(self, input_folder=None, output_folder=None, augmentation_params=None, multiplier=None, class_name=[]):
         if augmentation_params:
             self.augmentation_params = augmentation_params
         if multiplier:
@@ -350,16 +350,28 @@ class DatasetProcessor(BaseAugmentor):
                     print(f"Skipping {image_file}: No label file found.")
                     continue
 
-                image = cv2.imread(image_path)
                 with open(label_path, 'r') as f:
-                    labels = [line.strip() for line in f]
+                    lines = f.readlines()
+
+                if class_name: 
+                    filtered_lines = []
+                    for line in lines:
+                        class_id = int(line.split()[0])
+                        file_class_name = self.load_classes_from_yaml(input_folder)[class_id]
+                        if file_class_name in class_name:
+                            filtered_lines.append(line)
+                    if not filtered_lines:  
+                        continue
+                    lines = filtered_lines
+
+                image = cv2.imread(image_path)
 
                 original_image_file = os.path.join(output_images_path, image_file)
                 original_label_file = os.path.join(output_labels_path, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
 
                 cv2.imwrite(original_image_file, image)
                 with open(original_label_file, 'w') as f:
-                    f.write('\n'.join(labels))
+                    f.write(''.join(lines))
 
                 for i in range(self.multiplier):
                     augmented_image = self.augment_image(image.copy())
@@ -807,7 +819,6 @@ class DatasetProcessor(BaseAugmentor):
                 cv2.putText(image, f"Class {int(class_id)}", (x_min + 5, y_max - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
 
-
 class DatasetCleaner:
     def __init__(self, dataset_path):
         """
@@ -816,6 +827,7 @@ class DatasetCleaner:
         Args:
             dataset_path (str): Path to the dataset folder containing 'train', 'valid', 'test' subfolders and data.yaml.
         """
+        self.datasets_info = {}
         self.dataset_path = dataset_path
         self.data_yaml_path = os.path.join(dataset_path, "data.yaml")
         self.classes = self.load_classes()
@@ -841,7 +853,7 @@ class DatasetCleaner:
         for i, class_name in enumerate(self.classes):
             print(f"{i}: {class_name}")
 
-    def count_class_samples(self, class_name, subset=None):
+    def count_class_samples(self, class_name, subset=None, reset_value=False):
         """
         Count the number of samples for a specific class across the dataset or in a specific subset.
 
@@ -856,12 +868,22 @@ class DatasetCleaner:
             print(f"Class '{class_name}' not found in dataset.")
             return 0
 
+        subsets_to_check = subset if subset else ['train', 'valid', 'test']
+        subsets_to_check = [subsets_to_check] if isinstance(subsets_to_check, str) else subsets_to_check
+        
+        sum_result = 0
+        if not reset_value and class_name in self.datasets_info:
+            copy_subsets = subsets_to_check.copy()
+            for _subset in copy_subsets:
+                if not _subset in self.datasets_info[class_name]:
+                    continue
+                sum_result += self.datasets_info[class_name][_subset]
+                subsets_to_check.remove(_subset)
+
         class_id = self.classes.index(class_name)
-        sample_count = 0
-
-        subsets_to_check = [subset] if subset else ['train', 'valid', 'test']
-
+        
         for subset in subsets_to_check:
+            sample_count = 0
             labels_path = os.path.join(self.dataset_path, subset, 'labels')
 
             for label_file in os.listdir(labels_path):
@@ -869,8 +891,12 @@ class DatasetCleaner:
                 with open(label_path, 'r') as f:
                     lines = f.readlines()
                     sample_count += sum(1 for line in lines if int(line.split()[0]) == class_id)
-        return sample_count
-
+            if not class_name in self.datasets_info:
+                self.datasets_info[class_name] = {}
+            self.datasets_info[class_name][subset] = sample_count
+            sum_result += sample_count
+        return sum_result
+            
     def delete_class(self, class_names, max_samples=None, subset=None):
         """
         Delete all images, labels, and update data.yaml for specific classes. Ensure IDs in labels are adjusted.
@@ -883,7 +909,8 @@ class DatasetCleaner:
         if not isinstance(class_names, list):
             class_names = [class_names]
 
-        subsets_to_check = [subset] if subset else ['train', 'valid', 'test']
+        subsets_to_check = subset if subset else ['train', 'valid', 'test']
+        subsets_to_check = [subsets_to_check] if isinstance(subsets_to_check, str) else subsets_to_check
 
         for class_name in class_names:
             if class_name not in self.classes:
@@ -892,11 +919,11 @@ class DatasetCleaner:
 
             class_id = self.classes.index(class_name)
             samples_deleted = 0
+            the_same_id_in_lable = 0
 
             for subset in subsets_to_check:
                 images_path = os.path.join(self.dataset_path, subset, 'images')
                 labels_path = os.path.join(self.dataset_path, subset, 'labels')
-
                 for label_file in tqdm(os.listdir(labels_path), desc=f"Processing {subset} - {class_name}"):
                     label_path = os.path.join(labels_path, label_file)
                     with open(label_path, 'r') as f:
@@ -904,56 +931,82 @@ class DatasetCleaner:
 
                     updated_lines = []
                     class_found = False
-
+                    print(lines)
                     for line in lines:
                         parts = line.split()
-                        if int(parts[0]) == class_id:
+                        current_class_id = int(parts[0]) 
+                        
+                        if current_class_id == class_id:
                             class_found = True
+                            the_same_id_in_lable += 1
                         else:
-                            # Adjust IDs of remaining classes
-                            parts[0] = str(int(parts[0]) - 1 if int(parts[0]) > class_id else int(parts[0]))
+                            parts[0] = str(int(parts[0]) if current_class_id > class_id else current_class_id)
                             updated_lines.append(" ".join(parts) + "\n")
-
+                    
                     if class_found:
                         if max_samples and samples_deleted >= max_samples:
-                            continue
+                            break
 
-                        # Update the label file or delete it
                         if updated_lines:
                             with open(label_path, 'w') as f:
                                 f.writelines(updated_lines)
                         else:
                             os.remove(label_path)
+                            image_file = label_file.replace('.txt', '.jpg')
+                            image_path = os.path.join(images_path, image_file)
+                            if os.path.exists(image_path):
+                                os.remove(image_path)
+    
+                        samples_deleted = the_same_id_in_lable
 
-                        # Delete the corresponding image
-                        image_file = label_file.replace('.txt', '.jpg')
-                        image_path = os.path.join(images_path, image_file)
-                        if os.path.exists(image_path):
-                            os.remove(image_path)
+                if max_samples and samples_deleted >= max_samples:
+                    break
 
-                        samples_deleted += 1
+            if max_samples is None:
+                self.classes.remove(class_name)
 
-            # Remove the class from the classes list
-            self.classes.remove(class_name)
+                for subset in subsets_to_check:
+                    labels_path = os.path.join(self.dataset_path, subset, 'labels')
+                    for label_file in os.listdir(labels_path):
+                        label_path = os.path.join(labels_path, label_file)
+                        with open(label_path, 'r') as f:
+                            lines = f.readlines()
 
-            # Re-adjust all label files to ensure IDs are consistent
-            for subset in subsets_to_check:
-                labels_path = os.path.join(self.dataset_path, subset, 'labels')
-                for label_file in os.listdir(labels_path):
-                    label_path = os.path.join(labels_path, label_file)
-                    with open(label_path, 'r') as f:
-                        lines = f.readlines()
+                        updated_lines = []
+                        for line in lines:
+                            parts = line.split()
+                            current_class_id = int(parts[0])
+                            parts[0] = str(int(parts[0]) - 1 if current_class_id > class_id else current_class_id)
+                            updated_lines.append(" ".join(parts) + "\n")
 
-                    updated_lines = []
-                    for line in lines:
-                        parts = line.split()
-                        # Adjust IDs after class removal
-                        parts[0] = str(int(parts[0]) - 1 if int(parts[0]) > class_id else int(parts[0]))
-                        updated_lines.append(" ".join(parts) + "\n")
+                        with open(label_path, 'w') as f:
+                            f.writelines(updated_lines)
 
-                    with open(label_path, 'w') as f:
-                        f.writelines(updated_lines)
+        if max_samples is None:
+            self.update_data_yaml()
 
-        # Adjust class IDs and update data.yaml
-        self.update_data_yaml()
         print(f"Deleted samples of classes: {', '.join(class_names)}. IDs have been adjusted.")
+
+    def classes_equalization(self, subset=None):
+            """
+            Equalize the number of samples for each class in the dataset.
+
+            Args:
+                subset (str, optional): Subset to equalize samples in ('train', 'valid', 'test'). If None, equalizes in all subsets.
+            """
+            subsets_to_check = subset if subset else ['train', 'valid', 'test']
+            subsets_to_check = [subsets_to_check] if isinstance(subsets_to_check, str) else subsets_to_check
+
+            dataset = []
+            for _subset in subsets_to_check:
+                dataset.append({class_name: self.count_class_samples(class_name, _subset) for class_name in self.classes})
+                
+            for class_sample_counts, _subset in zip(dataset, subsets_to_check):
+                min_samples = min(class_sample_counts.values())
+                for class_name, current_count in class_sample_counts.items():
+                    if current_count > min_samples:
+                        print(f"Reducing samples for class '{class_name}' from {current_count} to {min_samples} in {_subset}.")
+                        samples_to_remove = current_count - min_samples
+                        self.delete_class([class_name], max_samples=samples_to_remove, subset=_subset)
+
+            print("Classes have been equalized across the dataset.")
