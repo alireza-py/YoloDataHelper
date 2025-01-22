@@ -82,8 +82,6 @@ def augment_dataset(processor, in_path='', out_path=''):
     augmen_params, multiplier = augmentation_params(doyou)
     os.system("cls")
     processor.process_folder(dataset_path, output_path, augmen_params, multiplier)
-    console.print("[bold green]Dataset augmentation completed![/bold green]")
-    doyou = Prompt.ask("Do you want to use crop (Y/N)? ", default="N").upper()
     
 def resize_and_crop(processor, in_paths, out_path=''):
     size = (640, 640)
@@ -147,6 +145,14 @@ def combine_datasets(combiner, paths, out_path=''):
     if doyou:
         combiner.process_folder(output_path, output_path, augmen_params, multiplier)
 
+def equalization(datasets_path, output_path):
+    path = output_path if output_path != '' else datasets_path[0]
+    cleaner = DatasetCleaner(path)
+    dataset_path = Prompt.ask("Dataset path", default=path)
+    subset = Prompt.ask("Enter subset (train, valid, test) or leave blank for all", default=None)
+    cleaner.classes_equalization(subset=subset)
+    print("Classes equalized successfully!")
+
 def visualize(visual, dataset_path, out_path=''):
     path = dataset_path if out_path == '' else out_path
     path = Prompt.ask("Enter the dataset path for augmentation", default=path)
@@ -174,8 +180,9 @@ def display_menu(processor, datasets_path, output_path):
                 "[4] Augment dataset\n"
                 "[5] visualize_annotations_bounding_boxs\n"
                 "[6] Resize\n"
-                "[7] Combine datasets\n"
-                "[8] Exit"
+                "[7] Class equalization\n"
+                "[8] Combine datasets\n"
+                "[9] Exit"
             )
             choice = Prompt.ask("Choose an option (1-7)")
         else:
@@ -186,7 +193,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[4] Augment dataset\n"
                 "[5] visualize_annotations_bounding_boxs\n"
                 "[6] Resize\n"
-                "[7] Exit"
+                "[7] Class equalization\n"
+                "[8] Exit"
             )
             choice = Prompt.ask("Choose an option (1-6)")
         
@@ -202,12 +210,14 @@ def display_menu(processor, datasets_path, output_path):
             visualize(processor, datasets_path[0], output_path)
         elif choice == "6":
             resize_and_crop(processor, datasets_path, output_path)
-        elif choice == "7" and len(datasets_path) >= 2:
-            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "7":
+            equalization(datasets_path, output_path)
         elif choice == "8" and len(datasets_path) >= 2:
+            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "9" and len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
-        elif choice == "7" and not len(datasets_path) >= 2:
+        elif choice == "8" and not len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
         else:
