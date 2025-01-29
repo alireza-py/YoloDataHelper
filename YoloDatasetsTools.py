@@ -496,7 +496,8 @@ class DatasetProcessor(BaseAugmentor):
                     
                     # Perform the selected mode
                     if mode == "fixed_resize":
-                        processed_image, updated_labels = self.resize_image_and_labels(image, labels, target_size)
+                        processed_image, _ = self.resize_image_and_labels(image, labels, target_size)
+                        updated_labels = labels
                     elif mode == "advance_resize":
                         processed_image, updated_labels = self.random_place_boxes_with_appropriate_resizing(image, labels, target_size)
                     elif mode == "advance_crop":
@@ -522,7 +523,7 @@ class DatasetProcessor(BaseAugmentor):
 
                     output_label_path = os.path.join(labels_output_path, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
                     with open(output_label_path, 'w') as f:
-                        f.writelines(updated_labels)
+                        f.write('\n'.join(updated_labels) + '\n')
         if os.path.exists(in_yaml_file) and not os.path.exists(out_yaml_file):
             shutil.copyfile(in_yaml_file, out_yaml_file)
 
@@ -543,7 +544,7 @@ class DatasetProcessor(BaseAugmentor):
 
         print(f"Processed dataset saved to {input_path if temp_dir else output_path}.")         
 
-    def random_place_boxes_with_complex_croping(self, image, labels, target_size):
+    def random_place_boxes_with_complex_croping(self, image, labels, target_size, max_attempts:int = 500):
         """
         Randomly place bounding boxes in the target image size while avoiding overlap,
         and apply a complex random background with color noise and effects.
@@ -559,7 +560,7 @@ class DatasetProcessor(BaseAugmentor):
         target_width, target_height = target_size
         original_height, original_width = image.shape[:2]
         
-        if target_width <= original_width and target_height <= original_height:
+        if target_width <= original_width or target_height <= original_height:
             output_image = np.random.randint(0, 256, (target_height, target_width, 3), dtype=np.uint8)
             
             noise_type = random.choice(["salt_and_pepper", "gaussian", "none"])
@@ -592,23 +593,34 @@ class DatasetProcessor(BaseAugmentor):
                 hsv = cv2.cvtColor(output_image, cv2.COLOR_BGR2HSV)
                 hsv[:, :, 2] = hsv[:, :, 2] * brightness_factor
                 output_image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
-
+            elif effect_type == "none":
+                rgb = [random.randint(0, 255) for _ in range(3)]
+                output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * rgb 
         else:
-            output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * 127  # Gray background
-            scale = min(target_width / original_width, target_height / original_height)
-            new_width = int(original_width * scale)
-            new_height = int(original_height * scale)
-            resized_image = cv2.resize(image, (new_width, new_height))
+            rgb = [random.randint(0, 255) for _ in range(3)]
+            output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * rgb
             
-            x_offset = (target_width - new_width) // 2
-            y_offset = (target_height - new_height) // 2
-            output_image[y_offset:y_offset + new_height, x_offset:x_offset + new_width] = resized_image
-
+            
         updated_labels = []
         placed_boxes = []
 
         for label in labels:
             parts = label.split()
+            if len(parts) > 5:
+                class_id = int(parts[0])
+                points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
+                minx = np.min(points[:, 0])
+                miny = np.min(points[:, 1])
+                maxx = np.max(points[:, 0])
+                maxy = np.max(points[:, 1])
+                cropwidth = maxx - minx
+                cropheight = maxy - miny
+                xcenter = (minx + maxx) / 2 / cropwidth
+                ycenter = (miny + maxy) / 2 / cropheight
+                bboxwidth = (maxx - minx) / cropwidth
+                bboxheight = (maxy - miny) / cropheight
+                label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                parts = label.split()
             class_id = parts[0]
             x_center = float(parts[1]) * original_width
             y_center = float(parts[2]) * original_height
@@ -627,7 +639,7 @@ class DatasetProcessor(BaseAugmentor):
             new_height = int(bbox_height * scale)
             resized_box = cv2.resize(cropped_box, (new_width, new_height))
 
-            max_attempts = 100
+            max_attempts = 100 if not isinstance(max_attempts, int) else max_attempts
             for _ in range(max_attempts):
                 max_x_offset = target_width - new_width
                 max_y_offset = target_height - new_height
@@ -657,7 +669,6 @@ class DatasetProcessor(BaseAugmentor):
                     break
             else:
                 print(f"Warning: Could not place box {label} without overlap after {max_attempts} attempts.")
-
         return output_image, updated_labels
         
     def random_place_boxes_with_appropriate_resizing(self, image, labels, target_size):
@@ -679,8 +690,47 @@ class DatasetProcessor(BaseAugmentor):
         
         original_aspect = original_width / original_height
         target_aspect = target_width / target_height
-        
-        output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * 127  # Gray background
+                
+        if target_width <= original_width or target_height <= original_height:
+            output_image = np.random.randint(0, 256, (target_height, target_width, 3), dtype=np.uint8)
+            
+            noise_type = random.choice(["salt_and_pepper", "gaussian", "none"])
+            if noise_type == "salt_and_pepper":
+                s_vs_p = 0.5  # Salt vs. pepper ratio
+                amount = 0.02  # Amount of noise
+                out = np.copy(output_image)
+                num_salt = int(amount * target_width * target_height * s_vs_p)
+                salt_coords = [np.random.randint(0, i-1, num_salt) for i in output_image.shape]
+                out[salt_coords[0], salt_coords[1], :] = 255
+                num_pepper = int(amount * target_width * target_height * (1.0 - s_vs_p))
+                pepper_coords = [np.random.randint(0, i-1, num_pepper) for i in output_image.shape]
+                out[pepper_coords[0], pepper_coords[1], :] = 0
+                output_image = out
+            elif noise_type == "gaussian":
+                row, col, ch = output_image.shape
+                mean = 0
+                sigma = 25
+                gauss = np.random.normal(mean, sigma, (row, col, ch))
+                noisy = np.array(output_image, dtype=float) + gauss
+                noisy = np.clip(noisy, 0, 255)
+                output_image = noisy.astype(np.uint8)
+
+            effect_type = random.choice(["blur", "brightness", "none"])
+            if effect_type == "blur":
+                ksize = random.choice([3, 5, 7])
+                output_image = cv2.GaussianBlur(output_image, (ksize, ksize), 0)
+            elif effect_type == "brightness":
+                brightness_factor = random.uniform(0.5, 1.5)
+                hsv = cv2.cvtColor(output_image, cv2.COLOR_BGR2HSV)
+                hsv[:, :, 2] = hsv[:, :, 2] * brightness_factor
+                output_image = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+            elif effect_type == "none":
+                rgb = [random.randint(0, 255) for _ in range(3)]
+                output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * rgb 
+        else:
+            rgb = [random.randint(0, 255) for _ in range(3)]
+            output_image = np.ones((target_height, target_width, 3), dtype=np.uint8) * rgb
+            
         
         updated_labels = []
         
@@ -700,6 +750,22 @@ class DatasetProcessor(BaseAugmentor):
             
             for label in labels:
                 parts = label.split()
+                if len(parts) > 5:
+                    class_id = int(parts[0])
+                    points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
+                    minx = np.min(points[:, 0])
+                    miny = np.min(points[:, 1])
+                    maxx = np.max(points[:, 0])
+                    maxy = np.max(points[:, 1])
+                    cropwidth = maxx - minx
+                    cropheight = maxy - miny
+                    xcenter = (minx + maxx) / 2 / cropwidth
+                    ycenter = (miny + maxy) / 2 / cropheight
+                    bboxwidth = (maxx - minx) / cropwidth
+                    bboxheight = (maxy - miny) / cropheight
+                    label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                    parts = label.split()
+                
                 class_id = parts[0]
                 x_center = float(parts[1]) * original_width
                 y_center = float(parts[2]) * original_height
@@ -730,6 +796,21 @@ class DatasetProcessor(BaseAugmentor):
             
             for label in labels:
                 parts = label.split()
+                if len(parts) > 5:
+                    class_id = int(parts[0])
+                    points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
+                    minx = np.min(points[:, 0])
+                    miny = np.min(points[:, 1])
+                    maxx = np.max(points[:, 0])
+                    maxy = np.max(points[:, 1])
+                    cropwidth = maxx - minx
+                    cropheight = maxy - miny
+                    xcenter = (minx + maxx) / 2 / cropwidth
+                    ycenter = (miny + maxy) / 2 / cropheight
+                    bboxwidth = (maxx - minx) / cropwidth
+                    bboxheight = (maxy - miny) / cropheight
+                    label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                    parts = label.split()
                 class_id = parts[0]
                 x_center = float(parts[1]) * original_width
                 y_center = float(parts[2]) * original_height
@@ -742,7 +823,6 @@ class DatasetProcessor(BaseAugmentor):
                 new_bbox_height = bbox_height * scale / target_height
                 
                 updated_labels.append(f"{class_id} {new_x_center:.6f} {new_y_center:.6f} {new_bbox_width:.6f} {new_bbox_height:.6f}")
-
         return output_image, updated_labels
 
     def crop_with_fixed_box(self, image, labels, crop_box):
@@ -770,7 +850,23 @@ class DatasetProcessor(BaseAugmentor):
 
         updated_labels = []
         for label in labels:
-            parts = list(map(lambda x:float(x), label.split()))
+            parts = label.split()
+            if len(parts) > 5:
+                class_id = int(parts[0])
+                points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
+                minx = np.min(points[:, 0])
+                miny = np.min(points[:, 1])
+                maxx = np.max(points[:, 0])
+                maxy = np.max(points[:, 1])
+                cropwidth = maxx - minx
+                cropheight = maxy - miny
+                xcenter = (minx + maxx) / 2 / cropwidth
+                ycenter = (miny + maxy) / 2 / cropheight
+                bboxwidth = (maxx - minx) / cropwidth
+                bboxheight = (maxy - miny) / cropheight
+                label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                parts = label.split()
+
             class_id = int(parts[0])
             x_min_bbox = (parts[1]-parts[3]/2) * image.shape[1]  # Original x_min
             y_min_bbox = (parts[2]-parts[4]/2) * image.shape[0]  # Original y_min
