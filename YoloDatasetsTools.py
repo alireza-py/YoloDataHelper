@@ -1027,7 +1027,6 @@ class DatasetCleaner:
 
                     updated_lines = []
                     class_found = False
-                    print(lines)
                     for line in lines:
                         parts = line.split()
                         current_class_id = int(parts[0]) 
