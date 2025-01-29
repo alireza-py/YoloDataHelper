@@ -32,6 +32,12 @@
 - Ensure the presence of the necessary directories (`train`, `valid`, `test`) and their subfolders (`images`, `labels`).
 - Automatically create any missing directories if they don’t exist.
 
+### 7. **Resize Options**
+- Compression: Resize with compressing images
+- Advanced_compression: Resize with advanced compressing images
+- Crop: Resize with cropping images
+- Advanced_crop: Resize with advanced cropping images
+
 ---
 
 ## 📦 Installation //
@@ -111,6 +117,24 @@ dataset_path = "path/to/dataset"
 processor = DatasetProcessor(dataset_path)
 
 processor.ensure_dataset(dataset_path)
+```
+### 7. Resize Options
+```python
+from YoloDatasetsTools import DatasetProcessor
+
+dataset_path = "path/to/dataset"
+output_path = "path/to/output_dataset"
+size = (720, 340)
+mode = "advance_crop"
+
+processor = DatasetProcessor(dataset_path)
+
+processor.process_resize_and_crop(
+  dataset_path, 
+  output_path, 
+  size,
+  mode
+  )
 ```
 ## 📚 Directory Structure //
 This tool assumes the following directory structure for YOLO datasets:
