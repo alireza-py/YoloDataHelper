@@ -207,29 +207,42 @@ class DatasetProcessor(BaseAugmentor):
         self.combined_classes = sorted(set(all_classes))
         self.class_mapping = {class_name: i for i, class_name in enumerate(self.combined_classes)}
 
-    def adjust_labels(self, dataset_path, ref_classes, temp_path):
+    def adjust_labels(self, dataset_path, temp_path):
         """
         Adjust the labels in a temporary dataset copy to match the combined class mapping.
         """
         yaml_data = self.load_yaml(os.path.join(dataset_path, "data.yaml"))
         classes = yaml_data["names"]
-        labels_folder = os.path.join(temp_path, "train", "labels")
 
-        for label_file in os.listdir(labels_folder):
-            label_path = os.path.join(labels_folder, label_file)
-            with open(label_path, 'r') as f:
-                lines = f.readlines()
+        for subset in ["train", "valid", "test"]:
+            labels_folder = os.path.join(temp_path, subset, "labels")
 
-            adjusted_lines = []
-            for line in lines:
-                parts = line.split()
-                class_id = int(parts[0])
-                class_name = classes[class_id]
-                new_class_id = self.class_mapping[class_name]
-                adjusted_lines.append(f"{new_class_id} {' '.join(parts[1:])}\n")
+            for label_file in os.listdir(labels_folder):
+                label_path = os.path.join(labels_folder, label_file)
+                try:
+                    with open(label_path, 'r') as f:
+                        lines = f.readlines()
+                except IOError as e:
+                    print(f"Error reading file {label_path}: {e}")
+                    continue
 
-            with open(label_path, 'w') as f:
-                f.writelines(adjusted_lines)
+                adjusted_lines = []
+                for line in lines:
+                    parts = line.split()
+                    try:
+                        class_id = int(parts[0])
+                        class_name = classes[class_id]
+                        new_class_id = self.class_mapping[class_name]
+                    except (IndexError, KeyError, ValueError) as e:
+                        print(f"Error processing line '{line.strip()}' in file {label_path}: {e}")
+                        continue
+                    adjusted_lines.append(f"{new_class_id} {' '.join(parts[1:])}\n")
+
+                try:
+                    with open(label_path, 'w') as f:
+                        f.writelines(adjusted_lines)
+                except IOError as e:
+                    print(f"Error writing file {label_path}: {e}")
 
     def remove_temp_directories(self, temp_paths):
         """
@@ -257,8 +270,7 @@ class DatasetProcessor(BaseAugmentor):
             print(f"Processing dataset {i + 1}/{len(datasets)}: {dataset}")
             temp_path = os.path.join(self.output_path, f"temp_dataset_{i+1}")
             self.copy_dataset_to_temp(dataset, temp_path)
-            temp_paths.append(temp_path)
-            self.adjust_labels(dataset, self.combined_classes, temp_path)
+            self.adjust_labels(dataset, temp_path)
             self.copy_dataset(temp_path, f"dataset{i + 1}")
 
         # Create the combined data.yaml file
