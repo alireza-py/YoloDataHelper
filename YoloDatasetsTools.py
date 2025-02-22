@@ -7,6 +7,7 @@ import yaml
 import uuid
 from tqdm import tqdm
 import tempfile
+from shapely.geometry import Polygon
 
 class BaseAugmentor:
     def __init__(self, augmentation_params=None):
@@ -619,19 +620,10 @@ class DatasetProcessor(BaseAugmentor):
         for label in labels:
             parts = label.split()
             if len(parts) > 5:
-                class_id = int(parts[0])
-                points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
-                minx = np.min(points[:, 0])
-                miny = np.min(points[:, 1])
-                maxx = np.max(points[:, 0])
-                maxy = np.max(points[:, 1])
-                cropwidth = maxx - minx
-                cropheight = maxy - miny
-                xcenter = (minx + maxx) / 2 / cropwidth
-                ycenter = (miny + maxy) / 2 / cropheight
-                bboxwidth = (maxx - minx) / cropwidth
-                bboxheight = (maxy - miny) / cropheight
-                label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
+                x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
+                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max, original_width, original_height)
+                label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                 parts = label.split()
             class_id = parts[0]
             x_center = float(parts[1]) * original_width
@@ -649,7 +641,10 @@ class DatasetProcessor(BaseAugmentor):
             scale = min(target_width / bbox_width, target_height / bbox_height)
             new_width = int(bbox_width * scale)
             new_height = int(bbox_height * scale)
-            resized_box = cv2.resize(cropped_box, (new_width, new_height))
+            if cropped_box.size > 0:
+                resized_box = cv2.resize(cropped_box, (new_width, new_height))
+            else:
+                continue
 
             max_attempts = 100 if not isinstance(max_attempts, int) else max_attempts
             for _ in range(max_attempts):
@@ -763,21 +758,11 @@ class DatasetProcessor(BaseAugmentor):
             for label in labels:
                 parts = label.split()
                 if len(parts) > 5:
-                    class_id = int(parts[0])
-                    points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
-                    minx = np.min(points[:, 0])
-                    miny = np.min(points[:, 1])
-                    maxx = np.max(points[:, 0])
-                    maxy = np.max(points[:, 1])
-                    cropwidth = maxx - minx
-                    cropheight = maxy - miny
-                    xcenter = (minx + maxx) / 2 / cropwidth
-                    ycenter = (miny + maxy) / 2 / cropheight
-                    bboxwidth = (maxx - minx) / cropwidth
-                    bboxheight = (maxy - miny) / cropheight
-                    label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                    segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
+                    x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
+                    center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max)
+                    label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                     parts = label.split()
-                
                 class_id = parts[0]
                 x_center = float(parts[1]) * original_width
                 y_center = float(parts[2]) * original_height
@@ -809,19 +794,10 @@ class DatasetProcessor(BaseAugmentor):
             for label in labels:
                 parts = label.split()
                 if len(parts) > 5:
-                    class_id = int(parts[0])
-                    points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
-                    minx = np.min(points[:, 0])
-                    miny = np.min(points[:, 1])
-                    maxx = np.max(points[:, 0])
-                    maxy = np.max(points[:, 1])
-                    cropwidth = maxx - minx
-                    cropheight = maxy - miny
-                    xcenter = (minx + maxx) / 2 / cropwidth
-                    ycenter = (miny + maxy) / 2 / cropheight
-                    bboxwidth = (maxx - minx) / cropwidth
-                    bboxheight = (maxy - miny) / cropheight
-                    label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                    segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
+                    x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
+                    center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max)
+                    label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                     parts = label.split()
                 class_id = parts[0]
                 x_center = float(parts[1]) * original_width
@@ -864,22 +840,14 @@ class DatasetProcessor(BaseAugmentor):
         for label in labels:
             parts = label.split()
             if len(parts) > 5:
-                class_id = int(parts[0])
-                points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
-                minx = np.min(points[:, 0])
-                miny = np.min(points[:, 1])
-                maxx = np.max(points[:, 0])
-                maxy = np.max(points[:, 1])
-                cropwidth = maxx - minx
-                cropheight = maxy - miny
-                xcenter = (minx + maxx) / 2 / cropwidth
-                ycenter = (miny + maxy) / 2 / cropheight
-                bboxwidth = (maxx - minx) / cropwidth
-                bboxheight = (maxy - miny) / cropheight
-                label = f"{class_id} {xcenter:.6f} {ycenter:.6f} {bboxwidth:.6f} {bboxheight:.6f}"
+                segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
+                x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
+                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max)
+                label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                 parts = label.split()
 
             class_id = int(parts[0])
+            parts[1:] = list(map(lambda x:float(x), parts[1:]))
             x_min_bbox = (parts[1]-parts[3]/2) * image.shape[1]  # Original x_min
             y_min_bbox = (parts[2]-parts[4]/2) * image.shape[0]  # Original y_min
             x_max_bbox = (parts[1]+parts[3]/2) * image.shape[1]
@@ -913,6 +881,63 @@ class DatasetProcessor(BaseAugmentor):
             updated_labels.append(f"{class_id} {x_center_new:.6f} {y_center_new:.6f} {bbox_width_new:.6f} {bbox_height_new:.6f}")
 
         return cropped_image, updated_labels
+
+    def _get_bounding_box_segmentation(self, segmentation_points):
+        x_coords = [point[0] for point in segmentation_points]
+        y_coords = [point[1] for point in segmentation_points]
+        x_min = min(x_coords)
+        x_max = max(x_coords)
+        y_min = min(y_coords)
+        y_max = max(y_coords)
+        return x_min, y_min, x_max, y_max
+    
+    def _convert_to_yolo_format(self, x_min, y_min, x_max, y_max):
+        center_x = (x_min + x_max) / 2  
+        center_y = (y_min + y_max) / 2  
+        width = (x_max - x_min)         
+        height = (y_max - y_min)
+        
+        return center_x, center_y, width, height
+
+    def segmentation_to_detection(self, dataset_path):
+        """
+        Convert segmentation labels to detection labels in YOLO format.
+
+        Args:
+            dataset_path (str): Path to the dataset folder containing 'train', 'valid', 'test' subfolders and data.yaml.
+        """
+        subsets = ['train', 'valid', 'test']
+        for subset in subsets:
+            images_path = os.path.join(dataset_path, subset, 'images')
+            labels_path = os.path.join(dataset_path, subset, 'labels')
+
+            for label_file in tqdm(os.listdir(labels_path), desc=f"Processing {subset}"):
+                label_path = os.path.join(labels_path, label_file)
+                with open(label_path, 'r') as f:
+                    lines = f.readlines()
+
+                updated_lines = []
+                for line in lines:
+                    parts = line.split()
+                    if len(parts) > 5:
+                        class_id = int(parts[0])
+                        points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
+                        x_min = np.min(points[:, 0])
+                        y_min = np.min(points[:, 1])
+                        x_max = np.max(points[:, 0])
+                        y_max = np.max(points[:, 1])
+                        x_center = (x_min + x_max) / 2
+                        y_center = (y_min + y_max) / 2
+                        width = x_max - x_min
+                        height = y_max - y_min
+                        updated_lines.append(f"{class_id} {x_center:.6f} {y_center:.6f} {width:.6f} {height:.6f}\n")
+                    else:
+                        updated_lines.append(line)
+
+                with open(label_path, 'w') as f:
+                    f.writelines(updated_lines)
+
+        print("Segmentation labels have been converted to detection labels.")
 
     def _test_(self, labels, image):
         for label in labels:
