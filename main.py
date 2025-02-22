@@ -168,6 +168,16 @@ def visualize(visual, dataset_path, out_path=''):
         folders = None
     visual.visualize_annotations(path, check=check_mode, folders=folders)
 
+def Segmentation_to_detection(processor, datasets_path, output_path=''):
+    path = output_path if output_path != '' else datasets_path[0]
+    dataset_paths = Prompt.ask("Enter the paths to datasets to c (comma-separated)", default=path).split(",")
+    dataset_paths = [path.strip() for path in dataset_paths]
+    if dataset_paths == ['']:
+        dataset_paths = [path]
+    for dataset in dataset_paths:
+        print(f"Process: {dataset}")
+        processor.segmentation_to_detection(dataset)
+        
 def display_menu(processor, datasets_path, output_path):
     """Main menu for dataset management."""
     while True:
@@ -181,8 +191,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[5] visualize_annotations_bounding_boxs\n"
                 "[6] Resize\n"
                 "[7] Class equalization\n"
-                "[8] Combine datasets\n"
-                "[9] Exit"
+                "[9] Combine datasets\n"
+                "[10] Exit"
             )
             choice = Prompt.ask("Choose an option (1-7)")
         else:
@@ -194,7 +204,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[5] visualize_annotations_bounding_boxs\n"
                 "[6] Resize\n"
                 "[7] Class equalization\n"
-                "[8] Exit"
+                "[8] Segmentation to detection\n"
+                "[9] Exit"
             )
             choice = Prompt.ask("Choose an option (1-6)")
         
@@ -212,12 +223,14 @@ def display_menu(processor, datasets_path, output_path):
             resize_and_crop(processor, datasets_path, output_path)
         elif choice == "7":
             equalization(datasets_path, output_path)
-        elif choice == "8" and len(datasets_path) >= 2:
-            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "8":
+            Segmentation_to_detection(processor, datasets_path, output_path)
         elif choice == "9" and len(datasets_path) >= 2:
+            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "10" and len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
-        elif choice == "8" and not len(datasets_path) >= 2:
+        elif choice == "9" and not len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
         else:
