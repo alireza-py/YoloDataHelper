@@ -8,6 +8,7 @@ import uuid
 from tqdm import tqdm
 import tempfile
 from shapely.geometry import Polygon
+import concurrent.futures
 
 class BaseAugmentor:
     def __init__(self, augmentation_params=None):
@@ -123,6 +124,7 @@ class DatasetProcessor(BaseAugmentor):
             processed_files = len([f for f in all_images if f in processed_images])
             print(processed_files)
             with tqdm(total=total_files, initial=processed_files, desc=f"Processing {folder}") as pbar:
+                key_wait = 0
                 for image_file in all_images:
                     if image_file in processed_images:
                         continue
@@ -166,7 +168,7 @@ class DatasetProcessor(BaseAugmentor):
 
                     if check:
                         cv2.imshow(f"visualize_annotations", image)
-                        key = cv2.waitKey(0)
+                        key = cv2.waitKey(key_wait)
                         if key == ord('c'):
                             print(f"Deleting {image_file} and its label...")
                             os.remove(image_path)
@@ -175,9 +177,11 @@ class DatasetProcessor(BaseAugmentor):
                         else:
                             output_image_path = os.path.join(output_folder, image_file)
                             cv2.imwrite(output_image_path, image)
-                        cv2.destroyAllWindows()
                         if key == ord('q'):
+                            cv2.destroyAllWindows()
                             break
+                        elif key == ord('a'):
+                            key_wait = 0 if key_wait else 1
                     else:
                         output_image_path = os.path.join(output_folder, image_file)
                         cv2.imwrite(output_image_path, image)
@@ -254,6 +258,14 @@ class DatasetProcessor(BaseAugmentor):
                 shutil.rmtree(temp_path)
                 print(f"Temporary directory {temp_path} has been removed.")
 
+    def process_dataset(self, i, dataset, datasets):
+        print(f"Processing dataset {i + 1}/{len(datasets)}: {dataset}")
+        temp_path = os.path.join(self.output_path, f"temp_dataset_{i+1}")
+        self.copy_dataset_to_temp(dataset, temp_path)
+        self.adjust_labels(dataset, temp_path)
+        self.copy_dataset(temp_path, f"dataset{i + 1}")
+        return temp_path
+        
     def combine_datasets(self, datasets, output_path=None):
         """
         Combine multiple datasets and generate a unified dataset.
@@ -267,12 +279,10 @@ class DatasetProcessor(BaseAugmentor):
         self.prepare_output_directories()
 
         temp_paths = []
-        for i, dataset in enumerate(datasets):
-            print(f"Processing dataset {i + 1}/{len(datasets)}: {dataset}")
-            temp_path = os.path.join(self.output_path, f"temp_dataset_{i+1}")
-            self.copy_dataset_to_temp(dataset, temp_path)
-            self.adjust_labels(dataset, temp_path)
-            self.copy_dataset(temp_path, f"dataset{i + 1}")
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [executor.submit(self.process_dataset, i, dataset, datasets) for i, dataset in enumerate(datasets)]
+            for future in concurrent.futures.as_completed(futures):
+                temp_paths.append(future.result())
 
         # Create the combined data.yaml file
         data_yaml = {
@@ -286,7 +296,7 @@ class DatasetProcessor(BaseAugmentor):
         combined_yaml_path = os.path.join(self.output_path, "data.yaml")
         self.save_yaml(data_yaml, combined_yaml_path)
         print(f"Dataset combined successfully! Data.yaml created at {combined_yaml_path}.")
-
+        self.shuffle_and_rename_dataset(output_path)
         self.remove_temp_directories(temp_paths)
 
     def prepare_output_directories(self):
@@ -919,7 +929,7 @@ class DatasetProcessor(BaseAugmentor):
                 updated_lines = []
                 for line in lines:
                     parts = line.split()
-                    if len(parts) > 5:
+                    if len(parts) != 5:
                         class_id = int(parts[0])
                         points = np.array(parts[1:], dtype=np.float32).reshape(-1, 2)
                         x_min = np.min(points[:, 0])
@@ -938,6 +948,55 @@ class DatasetProcessor(BaseAugmentor):
                     f.writelines(updated_lines)
 
         print("Segmentation labels have been converted to detection labels.")
+
+    def shuffle_and_rename_dataset(self, dataset_path):
+        """
+        Shuffle images and their corresponding labels in the dataset and rename them.
+
+        Args:
+            dataset_path (str): Path to the dataset containing 'train', 'valid', and 'test' folders.
+        """
+        subsets = ['train', 'valid', 'test']
+        for subset in subsets:
+            images_path = os.path.join(dataset_path, subset, 'images')
+            labels_path = os.path.join(dataset_path, subset, 'labels')
+
+            if not os.path.exists(images_path) or not os.path.exists(labels_path):
+                print(f"Skipping {subset} because one of the necessary subfolders is missing.")
+                continue
+
+            images = os.listdir(images_path)
+            labels = os.listdir(labels_path)
+
+            if len(images) != len(labels):
+                print(f"Warning: The number of images and labels in {subset} do not match.")
+                continue
+
+            combined = list(zip(images, labels))
+            if not combined:
+                continue
+
+            random.shuffle(combined)
+            shuffled_images, shuffled_labels = zip(*combined)
+
+            temp_images_path = os.path.join(dataset_path, subset, 'temp_images')
+            temp_labels_path = os.path.join(dataset_path, subset, 'temp_labels')
+            os.makedirs(temp_images_path, exist_ok=True)
+            os.makedirs(temp_labels_path, exist_ok=True)
+
+            for i, (image, label) in enumerate(zip(shuffled_images, shuffled_labels)):
+                new_image_name = f"{subset}_{i:06d}.jpg"
+                new_label_name = f"{subset}_{i:06d}.txt"
+
+                shutil.move(os.path.join(images_path, image), os.path.join(temp_images_path, new_image_name))
+                shutil.move(os.path.join(labels_path, label), os.path.join(temp_labels_path, new_label_name))
+
+            shutil.rmtree(images_path)
+            shutil.rmtree(labels_path)
+            os.rename(temp_images_path, images_path)
+            os.rename(temp_labels_path, labels_path)
+
+            print(f"Shuffled and renamed {subset} dataset successfully.")
 
     def _test_(self, labels, image):
         for label in labels:
