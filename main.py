@@ -168,6 +168,16 @@ def visualize(visual, dataset_path, out_path=''):
         folders = None
     visual.visualize_annotations(path, check=check_mode, folders=folders)
 
+def shuffle(processor, datasets_path, output_path):
+    path = output_path if output_path != '' else datasets_path[0]
+    dataset_paths = Prompt.ask("Enter the paths to datasets to c (comma-separated)", default=path).split(",")
+    dataset_paths = [path.strip() for path in dataset_paths]
+    if dataset_paths == ['']:
+        dataset_paths = [path]
+    for dataset in dataset_paths:
+        print(f"Process: {dataset}")
+        processor.shuffle_and_rename_dataset(dataset)
+
 def Segmentation_to_detection(processor, datasets_path, output_path=''):
     path = output_path if output_path != '' else datasets_path[0]
     dataset_paths = Prompt.ask("Enter the paths to datasets to c (comma-separated)", default=path).split(",")
@@ -191,8 +201,9 @@ def display_menu(processor, datasets_path, output_path):
                 "[5] visualize_annotations_bounding_boxs\n"
                 "[6] Resize\n"
                 "[7] Class equalization\n"
-                "[9] Combine datasets\n"
-                "[10] Exit"
+                "[8] shuffle and rename dataset\n"
+                "[10] Combine datasets\n"
+                "[11] Exit"
             )
             choice = Prompt.ask("Choose an option (1-7)")
         else:
@@ -205,7 +216,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[6] Resize\n"
                 "[7] Class equalization\n"
                 "[8] Segmentation to detection\n"
-                "[9] Exit"
+                "[9] shuffle and rename dataset\n"
+                "[10] Exit"
             )
             choice = Prompt.ask("Choose an option (1-6)")
         
@@ -225,12 +237,14 @@ def display_menu(processor, datasets_path, output_path):
             equalization(datasets_path, output_path)
         elif choice == "8":
             Segmentation_to_detection(processor, datasets_path, output_path)
-        elif choice == "9" and len(datasets_path) >= 2:
-            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "9":
+            shuffle(processor, datasets_path, output_path)
         elif choice == "10" and len(datasets_path) >= 2:
+            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "11" and len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
-        elif choice == "9" and not len(datasets_path) >= 2:
+        elif choice == "10" and not len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
         else:
