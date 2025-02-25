@@ -212,15 +212,16 @@ class DatasetProcessor(BaseAugmentor):
         self.combined_classes = sorted(set(all_classes))
         self.class_mapping = {class_name: i for i, class_name in enumerate(self.combined_classes)}
 
-    def adjust_labels(self, dataset_path, temp_path):
-        """
-        Adjust the labels in a temporary dataset copy to match the combined class mapping.
-        """
+    def adjust_labels(self, dataset_path, output_path):
         yaml_data = self.load_yaml(os.path.join(dataset_path, "data.yaml"))
         classes = yaml_data["names"]
+        
+        new_labels = {} 
 
         for subset in ["train", "valid", "test"]:
-            labels_folder = os.path.join(temp_path, subset, "labels")
+            labels_folder = os.path.join(dataset_path, subset, "labels")
+            output_labels_folder = os.path.join(output_path, subset, "labels")
+            os.makedirs(output_labels_folder, exist_ok=True)
 
             for label_file in os.listdir(labels_folder):
                 label_path = os.path.join(labels_folder, label_file)
@@ -243,12 +244,9 @@ class DatasetProcessor(BaseAugmentor):
                         continue
                     adjusted_lines.append(f"{new_class_id} {' '.join(parts[1:])}\n")
 
-                try:
-                    with open(label_path, 'w') as f:
-                        f.writelines(adjusted_lines)
-                except IOError as e:
-                    print(f"Error writing file {label_path}: {e}")
-
+                new_labels[label_file] = (adjusted_lines)
+        return new_labels 
+        
     def remove_temp_directories(self, temp_paths):
         """
         Remove all temporary directories created during processing.
@@ -260,11 +258,9 @@ class DatasetProcessor(BaseAugmentor):
 
     def process_dataset(self, i, dataset, datasets):
         print(f"Processing dataset {i + 1}/{len(datasets)}: {dataset}")
-        temp_path = os.path.join(self.output_path, f"temp_dataset_{i+1}")
-        self.copy_dataset_to_temp(dataset, temp_path)
-        self.adjust_labels(dataset, temp_path)
-        self.copy_dataset(temp_path, f"dataset{i + 1}")
-        return temp_path
+        new_labels = self.adjust_labels(dataset, self.output_path)  
+        self.copy_dataset(dataset, new_labels, f"dataset{i + 1}")  
+        return dataset
         
     def combine_datasets(self, datasets, output_path=None):
         """
@@ -297,7 +293,7 @@ class DatasetProcessor(BaseAugmentor):
         self.save_yaml(data_yaml, combined_yaml_path)
         print(f"Dataset combined successfully! Data.yaml created at {combined_yaml_path}.")
         self.shuffle_and_rename_dataset(output_path)
-        self.remove_temp_directories(temp_paths)
+        # self.remove_temp_directories(temp_paths)
 
     def prepare_output_directories(self):
         """
@@ -307,7 +303,7 @@ class DatasetProcessor(BaseAugmentor):
             os.makedirs(os.path.join(self.output_path, folder, 'images'), exist_ok=True)
             os.makedirs(os.path.join(self.output_path, folder, 'labels'), exist_ok=True)
 
-    def copy_dataset(self, dataset_path, dataset_prefix):
+    def copy_dataset(self, dataset_path, adj_labels, dataset_prefix):
         """
         Copy the dataset to the output folder, adjusting class labels.
         """
@@ -331,14 +327,15 @@ class DatasetProcessor(BaseAugmentor):
                 shutil.copy(image_path, os.path.join(self.output_path, folder_type, 'images', new_image_name))
 
                 new_lines = []
-                with open(label_path, 'r') as f:
-                    lines = f.readlines()
-                    for line in lines:
-                        parts = line.split()
-                        class_id = int(parts[0])
-                        class_name = self.combined_classes[class_id]
-                        new_class_id = self.class_mapping[class_name]
-                        new_lines.append(f"{new_class_id} {' '.join(parts[1:])}\n")
+                # print(label_name)
+                # print(label_name in adj_labels)
+                lines = adj_labels[label_name]
+                for line in lines:
+                    parts = line.split()
+                    class_id = int(parts[0])
+                    class_name = self.combined_classes[class_id]
+                    new_class_id = self.class_mapping[class_name]
+                    new_lines.append(f"{new_class_id} {' '.join(parts[1:])}\n")
 
                 with open(os.path.join(self.output_path, folder_type, 'labels', new_label_name), 'w') as f:
                     f.writelines(new_lines)
