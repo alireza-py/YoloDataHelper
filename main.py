@@ -201,7 +201,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[5] visualize_annotations_bounding_boxs\n"
                 "[6] Resize\n"
                 "[7] Class equalization\n"
-                "[8] shuffle and rename dataset\n"
+                "[8] Segmentation to detection\n"
+                "[9] shuffle and rename dataset\n"
                 "[10] Combine datasets\n"
                 "[11] Exit"
             )
