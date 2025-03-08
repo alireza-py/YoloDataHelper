@@ -629,7 +629,7 @@ class DatasetProcessor(BaseAugmentor):
             if len(parts) > 5:
                 segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
                 x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
-                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max, original_width, original_height)
+                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max)
                 label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                 parts = label.split()
             class_id = parts[0]
@@ -1198,3 +1198,64 @@ class DatasetCleaner:
                         self.delete_class([class_name], max_samples=samples_to_remove, subset=_subset)
 
             print("Classes have been equalized across the dataset.")
+
+    def remove_bad_size_of_bounding_box(self, dataset_folder, size_limit, folders=None):
+        folders = folders or ['train']  # Default to just 'train' if no folders are specified
+        count = 0
+        deleted_files = []
+        for folder in folders:
+            images_folder = os.path.join(dataset_folder, folder, "images")
+            labels_folder = os.path.join(dataset_folder, folder, "labels")
+
+            if not os.path.exists(images_folder) or not os.path.exists(labels_folder):
+                print(f"Skipping folder {folder} because one of the necessary subfolders is missing.")
+                continue
+
+            all_images = [f for f in os.listdir(images_folder) if f.endswith(('.jpg', '.png', '.jpeg'))]
+            
+            total_files = len(all_images)
+
+            with tqdm(total=total_files, desc=f"Processing {folder}") as pbar:
+                for image_file in all_images:
+                    image_path = os.path.join(images_folder, image_file)
+                    label_path = os.path.join(labels_folder, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
+
+                    if not os.path.exists(label_path):
+                        print(f"No label file found for {image_file}. Skipping...")
+                        pbar.update(1)
+                        continue
+
+                    image = cv2.imread(image_path)
+                    with open(label_path, "r") as f:
+                        labels = [list(map(float, line.strip().split())) for line in f]
+
+                    new_labals = []
+                    for label in labels:
+                        if len(label) == 5:
+                            class_id, cx, cy, w, h = label
+                            x_min = int((cx - w / 2) * image.shape[1])
+                            y_min = int((cy - h / 2) * image.shape[0])
+                            x_max = int((cx + w / 2) * image.shape[1])
+                            y_max = int((cy + h / 2) * image.shape[0])
+                            dif_x = abs(x_max - x_min)
+                            dif_y = abs(y_max - y_min)
+                            if dif_x <= size_limit or dif_y <= size_limit:
+                                continue
+                            new_labals.append(label)
+                    if not new_labals:
+                        count += 1
+                        deleted_files.append(image_file)
+                        os.remove(image_path)
+                        os.remove(label_path)
+                    elif len(labels) == len(new_labals):
+                        pass
+                    else:
+                        count += 1
+                        deleted_files.append(image_file)
+                        with open(label_path, "w") as f:
+                            for label in new_labals:
+                                f.write(" ".join(map(str, label)) + "\n")
+                    pbar.update(1)
+        for dele_fil in deleted_files:
+            print(deleted_files)
+        print(f"Deleted {count} files.")
