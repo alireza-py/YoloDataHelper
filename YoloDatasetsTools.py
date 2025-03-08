@@ -472,7 +472,7 @@ class DatasetProcessor(BaseAugmentor):
         
         return resized_image, updated_labels
     
-    def process_resize_and_crop(self, input_path, output_path, target_size, mode="fixed_resize", fixed_crop=None):
+    def process_resize_and_crop(self, input_path, output_path, target_size, resize_limit=70, mode="fixed_resize", fixed_crop=None):
         """
         Resize or crop images in the dataset to fit the target size, handling temporary processing if input_path == output_path.
 
@@ -493,6 +493,7 @@ class DatasetProcessor(BaseAugmentor):
         subsets = ['train', 'valid', 'test']
         in_yaml_file = os.path.join(input_path, 'data.yaml')
         out_yaml_file = os.path.join(output_path, 'data.yaml')
+        self.count_deleted = 0
         for subset in subsets:
             images_input_path = os.path.join(input_path, subset, 'images')
             labels_input_path = os.path.join(input_path, subset, 'labels')
@@ -521,7 +522,7 @@ class DatasetProcessor(BaseAugmentor):
                     elif mode == "advance_resize":
                         processed_image, updated_labels = self.random_place_boxes_with_appropriate_resizing(image, labels, target_size)
                     elif mode == "advance_crop":
-                        processed_image, updated_labels = self.random_place_boxes_with_complex_croping(image, labels, target_size)
+                        processed_image, updated_labels = self.random_place_boxes_with_complex_croping(image, labels, target_size, resize_limit)
                     elif mode == "fixed_crop":
                         if isinstance(fixed_crop, tuple) and len(fixed_crop) == 4:
                             pass
@@ -544,6 +545,7 @@ class DatasetProcessor(BaseAugmentor):
                     output_label_path = os.path.join(labels_output_path, image_file.replace('.jpg', '.txt').replace('.png', '.txt'))
                     with open(output_label_path, 'w') as f:
                         f.write('\n'.join(updated_labels) + '\n')
+        print(f"Deleted {self.count_deleted} files.")
         if os.path.exists(in_yaml_file) and not os.path.exists(out_yaml_file):
             shutil.copyfile(in_yaml_file, out_yaml_file)
 
@@ -623,7 +625,6 @@ class DatasetProcessor(BaseAugmentor):
             
         updated_labels = []
         placed_boxes = []
-        count_deleted = 0
 
         for label in labels:
             parts = label.split()
@@ -647,7 +648,7 @@ class DatasetProcessor(BaseAugmentor):
             dif_x = abs(x_max - x_min)
             dif_y = abs(y_max - y_min)
             if dif_x <= resize_limit or dif_y <= resize_limit:
-                count_deleted += 1
+                self.count_deleted += 1
                 continue
             
             cropped_box = image[y_min:y_max, x_min:x_max]
@@ -689,8 +690,7 @@ class DatasetProcessor(BaseAugmentor):
                     updated_labels.append(f"{class_id} {new_x_center:.6f} {new_y_center:.6f} {new_bbox_width:.6f} {new_bbox_height:.6f}")
                     break
             else:
-                count_deleted += 1
-        print(f"Deleted {count_deleted} files.")
+                self.count_deleted += 1
         return output_image, updated_labels
         
     def random_place_boxes_with_appropriate_resizing(self, image, labels, target_size):

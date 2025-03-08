@@ -96,6 +96,7 @@ def resize_and_crop(processor, in_paths, out_path=''):
 >[2]Crop: Resize with cropping images
 >[3]Advanced_crop: Resize with advanced cropping images\n'''
 )
+    resize_crop_limit = 0
     mode = int(Prompt.ask("Choose a number for resize mode of images", default=f"0").strip())
     match mode:
         case 0:
@@ -106,6 +107,7 @@ def resize_and_crop(processor, in_paths, out_path=''):
             mode = "fixed_crop"
         case 3:
             mode = "advance_crop"
+            resize_crop_limit = int(Prompt.ask("Enter a number for limit crop size", default=f"70").strip())
         case _:
             mode = "fixed_resize"
     _crop = None
@@ -123,7 +125,7 @@ def resize_and_crop(processor, in_paths, out_path=''):
         elif len(sizeprompt) >= 2:
             size = (int(sizeprompt[0]), int(sizeprompt[1]))
         write_typly(f"Change size configed to {size}\n")
-    processor.process_resize_and_crop(dataset_path, output_path, size, mode=mode, fixed_crop=_crop)
+    processor.process_resize_and_crop(dataset_path, output_path, size, resize_crop_limit, mode=mode, fixed_crop=_crop)
 
 def combine_datasets(combiner, paths, out_path=''):
     """Combine multiple YOLO datasets."""
