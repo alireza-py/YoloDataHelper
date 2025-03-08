@@ -188,6 +188,21 @@ def Segmentation_to_detection(processor, datasets_path, output_path=''):
         print(f"Process: {dataset}")
         processor.segmentation_to_detection(dataset)
         
+def size_limit(datasets_path, output_path=''):
+    path = output_path if output_path != '' else datasets_path[0]
+    dataset_path = Prompt.ask("Enter the paths to dataset", default=path).split(",")
+    dataset_path = [path.strip() for path in dataset_path]
+    if dataset_path == ['']:
+        dataset_path = [path]
+    dataset = dataset_path[0]
+    folders = Prompt.ask("Enter the paths to datasets to combine (comma-separated)", default="train").split(",")
+    folders = [folder.strip() for folder in folders]
+    if folders == ['']:
+        folders = None
+    cleaner = DatasetCleaner(dataset)
+    size = Prompt.ask("Enter the size limit for bounding box", default="40")
+    cleaner.remove_bad_size_of_bounding_box(dataset, int(size), folders)
+
 def display_menu(processor, datasets_path, output_path):
     """Main menu for dataset management."""
     while True:
@@ -203,8 +218,9 @@ def display_menu(processor, datasets_path, output_path):
                 "[7] Class equalization\n"
                 "[8] Segmentation to detection\n"
                 "[9] shuffle and rename dataset\n"
-                "[10] Combine datasets\n"
-                "[11] Exit"
+                "[10] remove bad size of bounding box\n"
+                "[11] Combine datasets\n"
+                "[12] Exit"
             )
             choice = Prompt.ask("Choose an option (1-7)")
         else:
@@ -218,7 +234,8 @@ def display_menu(processor, datasets_path, output_path):
                 "[7] Class equalization\n"
                 "[8] Segmentation to detection\n"
                 "[9] shuffle and rename dataset\n"
-                "[10] Exit"
+                "[10] remove bad size of bounding box\n"
+                "[11] Exit"
             )
             choice = Prompt.ask("Choose an option (1-6)")
         
@@ -240,12 +257,14 @@ def display_menu(processor, datasets_path, output_path):
             Segmentation_to_detection(processor, datasets_path, output_path)
         elif choice == "9":
             shuffle(processor, datasets_path, output_path)
-        elif choice == "10" and len(datasets_path) >= 2:
-            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "10":
+            size_limit(datasets_path, output_path)
         elif choice == "11" and len(datasets_path) >= 2:
+            combine_datasets(processor, datasets_path, output_path)
+        elif choice == "12" and len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
-        elif choice == "10" and not len(datasets_path) >= 2:
+        elif choice == "11" and not len(datasets_path) >= 2:
             console.print("[bold yellow]Exiting the tool. Goodbye![/bold yellow]")
             break
         else:
