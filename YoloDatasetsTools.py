@@ -629,7 +629,7 @@ class DatasetProcessor(BaseAugmentor):
             if len(parts) > 5:
                 segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
                 x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
-                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max, original_width, original_height)
+                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max)
                 label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                 parts = label.split()
             class_id = parts[0]
