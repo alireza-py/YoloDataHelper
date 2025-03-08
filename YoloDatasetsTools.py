@@ -564,7 +564,7 @@ class DatasetProcessor(BaseAugmentor):
 
         print(f"Processed dataset saved to {input_path if temp_dir else output_path}.")         
 
-    def random_place_boxes_with_complex_croping(self, image, labels, target_size, max_attempts:int = 500):
+    def random_place_boxes_with_complex_croping(self, image, labels, target_size, resize_limit, max_attempts:int = 1000):
         """
         Randomly place bounding boxes in the target image size while avoiding overlap,
         and apply a complex random background with color noise and effects.
@@ -623,6 +623,7 @@ class DatasetProcessor(BaseAugmentor):
             
         updated_labels = []
         placed_boxes = []
+        count_deleted = 0
 
         for label in labels:
             parts = label.split()
@@ -643,6 +644,12 @@ class DatasetProcessor(BaseAugmentor):
             x_max = int(x_center + bbox_width / 2)
             y_max = int(y_center + bbox_height / 2)
 
+            dif_x = abs(x_max - x_min)
+            dif_y = abs(y_max - y_min)
+            if dif_x <= resize_limit or dif_y <= resize_limit:
+                count_deleted += 1
+                continue
+            
             cropped_box = image[y_min:y_max, x_min:x_max]
 
             scale = min(target_width / bbox_width, target_height / bbox_height)
@@ -682,7 +689,8 @@ class DatasetProcessor(BaseAugmentor):
                     updated_labels.append(f"{class_id} {new_x_center:.6f} {new_y_center:.6f} {new_bbox_width:.6f} {new_bbox_height:.6f}")
                     break
             else:
-                print(f"Warning: Could not place box {label} without overlap after {max_attempts} attempts.")
+                count_deleted += 1
+        print(f"Deleted {count_deleted} files.")
         return output_image, updated_labels
         
     def random_place_boxes_with_appropriate_resizing(self, image, labels, target_size):
