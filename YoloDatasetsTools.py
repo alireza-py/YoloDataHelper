@@ -629,7 +629,7 @@ class DatasetProcessor(BaseAugmentor):
             if len(parts) > 5:
                 segmentation = [tuple(map(float, parts[i:i+2])) for i in range(1, len(parts), 2)]
                 x_min, y_min, x_max, y_max = self._get_bounding_box_segmentation(segmentation)
-                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max)
+                center_x, center_y, width, height = self._convert_to_yolo_format(x_min, y_min, x_max, y_max, original_width, original_height)
                 label = f"{parts[0]} {center_x} {center_y} {width} {height}"
                 parts = label.split()
             class_id = parts[0]
@@ -1202,7 +1202,6 @@ class DatasetCleaner:
     def remove_bad_size_of_bounding_box(self, dataset_folder, size_limit, folders=None):
         folders = folders or ['train']  # Default to just 'train' if no folders are specified
         count = 0
-        deleted_files = []
         for folder in folders:
             images_folder = os.path.join(dataset_folder, folder, "images")
             labels_folder = os.path.join(dataset_folder, folder, "labels")
@@ -1244,18 +1243,14 @@ class DatasetCleaner:
                             new_labals.append(label)
                     if not new_labals:
                         count += 1
-                        deleted_files.append(image_file)
                         os.remove(image_path)
                         os.remove(label_path)
                     elif len(labels) == len(new_labals):
                         pass
                     else:
                         count += 1
-                        deleted_files.append(image_file)
                         with open(label_path, "w") as f:
                             for label in new_labals:
                                 f.write(" ".join(map(str, label)) + "\n")
                     pbar.update(1)
-        for dele_fil in deleted_files:
-            print(deleted_files)
         print(f"Deleted {count} files.")
